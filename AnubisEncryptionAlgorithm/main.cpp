@@ -10,11 +10,14 @@ using namespace crypto;
 
 int main() 
 {
-	std::vector<byte> key(40, '\0');
-	anubis a(key);
+	anubis cypher;
+
+	std::vector<byte> data(301, 'B');
+	auto res = cypher.decrypt(cypher.encrypt(data));
+	bool success_data_enc_dec = (data == res);
 
 #ifdef _DEBUG
-	auto enc = a.get_round_encrypt_key();
+	/*auto enc = a.get_round_encrypt_key();
 	auto dec = a.get_round_decrypt_key();
 
 	std::cout << "DEC\n";
@@ -35,7 +38,7 @@ int main()
 			<< std::setw(16) << key[1]
 			<< std::setw(16) << key[2]
 			<< std::setw(16) << key[3] << std::endl;
-	}
+	}*/
 #endif // _DEBUG
 
 	return 0;

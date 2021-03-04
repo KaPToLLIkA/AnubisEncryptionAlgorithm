@@ -1,6 +1,28 @@
 #include "anubis.h"
+#include <iostream>
 
 namespace crypto {
+    block32_t operator^(const block32_t& a, const block32_t& b)
+    {
+        block32_t r;
+        r[0] = a[0] ^ b[0];
+        r[1] = a[1] ^ b[1];
+        r[2] = a[2] ^ b[2];
+        r[3] = a[3] ^ b[3];
+        return r;
+    }
+
+    std::vector<byte>& operator+(std::vector<byte>& a, const block32_t& b)
+    {
+        for (size_t i = 0; i < b.size(); ++i)
+        {
+            a.push_back(GET_BYTE(b[i], 24));
+            a.push_back(GET_BYTE(b[i], 16));
+            a.push_back(GET_BYTE(b[i], 8));
+            a.push_back(GET_BYTE(b[i], 0));
+        }
+        return a;
+    }
 
     //initial vector
 	uint32_t anubis::T0[256] = {
@@ -405,6 +427,44 @@ namespace crypto {
         0xfce532b3, 0xfde734bb, 0xfee13ea3, 0xffe338ab
 	};
 
+    std::vector<block32_t> anubis::split_data(std::vector<byte> data, bool is_last_block)
+    {
+        std::vector<block32_t> blocks;
+
+        size_t whole_blocks = data.size() / ANUBIS_BLOCK_SZ;
+
+        if (is_last_block)
+        {
+            size_t last_bytes = data.size() - whole_blocks * ANUBIS_BLOCK_SZ;
+            std::random_device rd;
+            std::mt19937_64 generator(rd());
+            for (size_t i = 0; i < ANUBIS_BLOCK_SZ - last_bytes - 1; ++i) {
+                data.push_back(generator() % 256);
+            }
+            data.push_back(static_cast<byte>(ANUBIS_BLOCK_SZ - last_bytes - 1));
+            whole_blocks = data.size() / ANUBIS_BLOCK_SZ;
+        }
+
+
+        block32_t block;
+        for (size_t i = 0, pos = 0; i < whole_blocks; ++i)
+        {
+            for (size_t b = 0; b < block.size(); ++b)
+            {
+                block[b] =
+                    (static_cast<uint32_t>(data[pos]) << 24) ^
+                    (static_cast<uint32_t>(data[pos+1]) << 16) ^
+                    (static_cast<uint32_t>(data[pos+2]) << 8) ^
+                    (static_cast<uint32_t>(data[pos+3]));
+                
+                pos += 4;
+            }
+            blocks.push_back(block);
+        }
+
+        return blocks;
+    }
+
     block32_t anubis::generate_random_iv()
 	{
 		
@@ -419,6 +479,82 @@ namespace crypto {
 
 		return iv;
 	}
+
+    block32_t anubis::crypt(block32_t block, std::vector<block32_t>& round_keys)
+    {
+        size_t R = round_keys.size() - 1;
+        block32_t state;
+        block32_t inter;
+
+        state = block;
+        for (size_t i = 0; i < 4; ++i)
+        {
+            state[i] ^= round_keys[0][i];
+        }
+
+        for (size_t r = 1; r < R; ++r)
+        {
+            inter[0] =
+                T0[GET_BYTE(state[0], 24)] ^
+                T1[GET_BYTE(state[1], 24)] ^
+                T2[GET_BYTE(state[2], 24)] ^
+                T3[GET_BYTE(state[3], 24)] ^
+                round_keys[r][0];
+
+            inter[1] =
+                T0[GET_BYTE(state[0], 16)] ^
+                T1[GET_BYTE(state[1], 16)] ^
+                T2[GET_BYTE(state[2], 16)] ^
+                T3[GET_BYTE(state[3], 16)] ^
+                round_keys[r][1];
+
+            inter[2] =
+                T0[GET_BYTE(state[0], 8)] ^
+                T1[GET_BYTE(state[1], 8)] ^
+                T2[GET_BYTE(state[2], 8)] ^
+                T3[GET_BYTE(state[3], 8)] ^
+                round_keys[r][2];
+
+            inter[3] =
+                T0[GET_BYTE(state[0], 0)] ^
+                T1[GET_BYTE(state[1], 0)] ^
+                T2[GET_BYTE(state[2], 0)] ^
+                T3[GET_BYTE(state[3], 0)] ^
+                round_keys[r][3];
+
+            state = inter;
+        }
+
+        inter[0] =
+            T0[GET_BYTE(state[0], 24)] & 0xff000000 ^
+            T1[GET_BYTE(state[1], 24)] & 0x00ff0000 ^
+            T2[GET_BYTE(state[2], 24)] & 0x0000ff00 ^
+            T3[GET_BYTE(state[3], 24)] & 0x000000ff ^
+            round_keys[R][0];
+
+        inter[1] =
+            T0[GET_BYTE(state[0], 16)] & 0xff000000 ^
+            T1[GET_BYTE(state[1], 16)] & 0x00ff0000 ^
+            T2[GET_BYTE(state[2], 16)] & 0x0000ff00 ^
+            T3[GET_BYTE(state[3], 16)] & 0x000000ff ^
+            round_keys[R][1];
+
+        inter[2] =
+            T0[GET_BYTE(state[0], 8)] & 0xff000000 ^
+            T1[GET_BYTE(state[1], 8)] & 0x00ff0000 ^
+            T2[GET_BYTE(state[2], 8)] & 0x0000ff00 ^
+            T3[GET_BYTE(state[3], 8)] & 0x000000ff ^
+            round_keys[R][2];
+
+        inter[3] =
+            T0[GET_BYTE(state[0], 0)] & 0xff000000 ^
+            T1[GET_BYTE(state[1], 0)] & 0x00ff0000 ^
+            T2[GET_BYTE(state[2], 0)] & 0x0000ff00 ^
+            T3[GET_BYTE(state[3], 0)] & 0x000000ff ^
+            round_keys[R][3];
+
+        return inter;
+    }
 
 	std::vector<byte> anubis::generate_random_key(int32_t N)
 	{
@@ -458,7 +594,7 @@ namespace crypto {
 	void anubis::set_key(std::vector<byte>& key)
 	{
         //determine the N length parameter
-        int32_t N = key.size() / 4;
+        int32_t N = static_cast<int32_t>(key.size()) / 4;
 
         if (N > 10 || N < 4) 
         {
@@ -575,6 +711,82 @@ namespace crypto {
     std::vector<byte> anubis::get_key()
     {
         return this->key;
+    }
+
+    void anubis::set_file_buf_sz(uint32_t sz)
+    {
+        uint32_t bc = sz / ANUBIS_BLOCK_SZ / 8;
+        this->file_buf_sz = (bc == 0 ? 1 : bc) * ANUBIS_BLOCK_SZ * 8;
+    }
+
+    uint32_t anubis::get_file_buf_sz()
+    {
+        return this->file_buf_sz;
+    }
+
+    std::vector<byte> anubis::encrypt(std::vector<byte>* data)
+    {
+        auto blocks = split_data(*data);
+
+        auto iv = generate_random_iv();
+
+        std::vector<byte> result;
+        result = result + iv;
+
+        for (const auto & block : blocks) 
+        {
+            iv = crypt(iv ^ block, this->round_encrypt_key);
+            result = result + iv;
+        }
+
+        return result;
+    }
+
+    std::vector<byte> anubis::encrypt(std::vector<byte> data)
+    {
+        return encrypt(&data);
+    }
+
+    std::vector<byte> anubis::decrypt(std::vector<byte>* data)
+    {
+        auto blocks = split_data(*data, false);
+
+        auto iv = blocks[0];
+
+        std::vector<byte> result;
+
+        for (size_t i = 1; i < blocks.size(); ++i) 
+        {
+            result = result + (iv ^ crypt(blocks[i], this->round_decrypt_key));
+            iv = blocks[i];
+        }
+
+        auto first = result.end() - 1 - static_cast<int32_t>(*(--result.end()));
+        auto last = result.end();
+
+        result.erase(first, last);
+
+        return result;
+    }
+
+    std::vector<byte> anubis::decrypt(std::vector<byte> data)
+    {
+        return decrypt(&data);
+    }
+
+    bool anubis::encrypt_file(std::string* fname)
+    {
+        std::ifstream fin(*fname, std::ios_base::binary);
+
+        
+
+        fin.close();
+        return true;
+    }
+
+    bool anubis::encrypt_file(std::string fname)
+    {
+        return encrypt_file(&fname);
     }
 
 #ifdef _DEBUG
