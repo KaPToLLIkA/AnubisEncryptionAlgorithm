@@ -28,7 +28,12 @@ namespace crypto {
 
 		static std::vector<block32_t> split_data(std::vector<byte> data, bool is_last_block = true);
 		
-		uint32_t file_buf_sz = ANUBIS_BLOCK_SZ * 8 * 25; //in bytes
+#ifdef _DEBUG
+		uint32_t file_buf_sz = ANUBIS_BLOCK_SZ * 127; //in bytes
+#else
+		uint32_t file_buf_sz = ANUBIS_BLOCK_SZ * 65536; //in bytes
+#endif // _DEBUG
+
 		std::vector<byte> key;
 		std::vector<block32_t> round_encrypt_key;
 		std::vector<block32_t> round_decrypt_key;
@@ -53,10 +58,10 @@ namespace crypto {
 		std::vector<byte> decrypt(std::vector<byte>* data);
 		std::vector<byte> decrypt(std::vector<byte> data);
 
-		bool encrypt_file(std::string* fname);
-		bool encrypt_file(std::string fname);
-		bool decrypt_file(std::string* fname);
-		bool decrypt_file(std::string fname);
+		std::string encrypt_file(std::string* fname);
+		std::string encrypt_file(std::string fname);
+		std::string decrypt_file(std::string* fname);
+		std::string decrypt_file(std::string fname);
 
 #ifdef _DEBUG
 		std::vector<block32_t> get_round_encrypt_key();

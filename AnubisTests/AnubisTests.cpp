@@ -95,5 +95,6 @@ namespace AnubisTests
 			Logger::WriteMessage(std::string(std::to_string(data2.size()) + " << data2 len").c_str());
 			Assert::AreEqual(true, success_data_enc_dec);
 		}
+
 	};
 }

@@ -596,7 +596,7 @@ namespace crypto {
         //determine the N length parameter
         int32_t N = static_cast<int32_t>(key.size()) / 4;
 
-        if (N > 10 || N < 4) 
+        if ((N > 10 || N < 4) && static_cast<int32_t>(key.size()) % 4 == 0)
         {
             throw std::runtime_error("Invalid Anubis key size " 
                 + std::to_string(key.size()) +
@@ -715,8 +715,8 @@ namespace crypto {
 
     void anubis::set_file_buf_sz(uint32_t sz)
     {
-        uint32_t bc = sz / ANUBIS_BLOCK_SZ / 8;
-        this->file_buf_sz = (bc == 0 ? 1 : bc) * ANUBIS_BLOCK_SZ * 8;
+        uint32_t bc = sz / ANUBIS_BLOCK_SZ;
+        this->file_buf_sz = (bc == 0 ? 1 : bc) * ANUBIS_BLOCK_SZ;
     }
 
     uint32_t anubis::get_file_buf_sz()
@@ -774,19 +774,133 @@ namespace crypto {
         return decrypt(&data);
     }
 
-    bool anubis::encrypt_file(std::string* fname)
+    std::string anubis::encrypt_file(std::string* fname)
     {
         std::ifstream fin(*fname, std::ios_base::binary);
+        if (!fin.is_open())
+        {
+            throw std::runtime_error("Unable to open the \"" + *fname + "\" file.");
+        }
+        std::ofstream fout((*fname) + ".encrypted", std::ios_base::binary | std::ios_base::trunc);
 
-        
+        std::streampos cur = fin.tellg(), last = fin.tellg();
+        size_t len = cur - last;
+        fin.seekg(0, std::ios::end);
+        size_t f_len = fin.tellg();
+        fin.seekg(0, std::ios::beg);
 
+        auto iv = generate_random_iv();
+        fout.write(reinterpret_cast<char*>(iv.data()), ANUBIS_BLOCK_SZ);
+
+        bool file_ended = false;
+        char t;
+
+        do 
+        {
+            std::vector<byte> data(this->file_buf_sz);
+            fin.read(reinterpret_cast<char*>(data.data()), data.size());
+
+            fin.read(&t, 1);
+            file_ended = fin.eof();
+            fin.seekg(-1, std::ios::cur);
+
+            cur = fin.tellg();
+            len = cur != -1 ? cur - last : f_len - last;
+            last = cur;
+
+            data.resize(len);
+
+            auto blocks = split_data(data, file_ended);
+
+            std::vector<byte> result;
+            for (const auto& block : blocks) 
+            {
+                iv = crypt(iv ^ block, this->round_encrypt_key);
+                result = result + iv;
+            }
+
+            fout.write(reinterpret_cast<char*>(result.data()), result.size());
+            
+        } while (!file_ended);
+
+        fout.close();
         fin.close();
-        return true;
+        return (*fname) + ".encrypted";
     }
 
-    bool anubis::encrypt_file(std::string fname)
+    std::string anubis::encrypt_file(std::string fname)
     {
         return encrypt_file(&fname);
+    }
+
+    std::string anubis::decrypt_file(std::string* fname)
+    {
+        std::ifstream fin(*fname, std::ios_base::binary);
+        if (!fin.is_open())
+        {
+            throw std::runtime_error("Unable to open the \"" + *fname + "\" file.");
+        }
+        std::ofstream fout((*fname) + ".decrypted", std::ios_base::binary | std::ios_base::trunc);
+
+        std::streampos cur = fin.tellg(), last = fin.tellg();
+        size_t len = cur - last;
+        fin.seekg(0, std::ios::end);
+        size_t f_len = fin.tellg();
+        fin.seekg(0, std::ios::beg);
+
+        block32_t iv;
+        fin.read(reinterpret_cast<char*>(iv.data()), ANUBIS_BLOCK_SZ);
+
+        cur = fin.tellg();
+        last = cur;
+
+        bool file_ended = false;
+        char t;
+
+        do
+        {
+            std::vector<byte> data(this->file_buf_sz);
+            fin.read(reinterpret_cast<char*>(data.data()), data.size());
+
+            fin.read(&t, 1);
+            file_ended = fin.eof();
+            fin.seekg(-1, std::ios::cur);
+
+            cur = fin.tellg();
+            len = cur != -1 ? cur - last : f_len - last;
+            last = cur;
+
+            data.resize(len);
+
+            auto blocks = split_data(data, false);
+
+            std::vector<byte> result;
+            for (const auto& block : blocks)
+            {
+                result = result + (iv ^ crypt(block, this->round_decrypt_key));
+                iv = block;
+            }
+
+            if (file_ended) 
+            {
+                auto first = result.end() - 1 - static_cast<int32_t>(*(--result.end()));
+                auto last = result.end();
+
+                result.erase(first, last);
+            }
+
+            fout.write(reinterpret_cast<char*>(result.data()), result.size());
+
+        } while (!file_ended);
+
+        fout.close();
+        fin.close();
+        return (*fname) + ".decrypted";
+    }
+
+    std::string anubis::decrypt_file(std::string fname)
+    {
+        return decrypt_file(&fname);
     }
 
 #ifdef _DEBUG
