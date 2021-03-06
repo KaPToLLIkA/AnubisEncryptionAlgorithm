@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
 	);
 
 	std::cout << "Checking arguments..." << std::endl;
-	if (argc == 1 || argc > 4)
+	if (argc != 4)
 	{
 		std::cout << "Wrong arguments count!\n"
 			<< "Usage: " + prog_name + " -enc|-dec data_file_name key_file_name" << std::endl;
