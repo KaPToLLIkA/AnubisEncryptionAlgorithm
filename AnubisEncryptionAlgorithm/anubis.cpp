@@ -24,6 +24,8 @@ namespace crypto {
         return a;
     }
 
+    // таблицы для замен в алгоритме шифрования
+    // по ним замены выполняются
     //initial vector
 	uint32_t anubis::T0[256] = {
         0xba69d2bb, 0x54a84de5, 0x2f5ebce2, 0x74e8cd25,
@@ -431,21 +433,27 @@ namespace crypto {
     {
         std::vector<block32_t> blocks;
 
+        // определяем количество целых блоков
         size_t whole_blocks = data.size() / ANUBIS_BLOCK_SZ;
 
+        // смотрим, надо ли дополнять данные ненужными байтами
         if (is_last_block)
         {
+            // если да, то определяем количество байт в последнем, НЕ полном блок
             size_t last_bytes = data.size() - whole_blocks * ANUBIS_BLOCK_SZ;
             std::random_device rd;
             std::mt19937_64 generator(rd());
+            // дополняем последний неполный блок фиктивными байтами
             for (size_t i = 0; i < ANUBIS_BLOCK_SZ - last_bytes - 1; ++i) {
                 data.push_back(generator() % 256);
             }
+            // записываем в конец количество добавленных байт
             data.push_back(static_cast<byte>(ANUBIS_BLOCK_SZ - last_bytes - 1));
+            // переопределяем количество целых блоков
             whole_blocks = data.size() / ANUBIS_BLOCK_SZ;
         }
 
-
+        // разбиваем данные на блоки
         block32_t block;
         for (size_t i = 0, pos = 0; i < whole_blocks; ++i)
         {
@@ -467,13 +475,14 @@ namespace crypto {
 
     block32_t anubis::generate_random_iv()
 	{
-		
+		// создаёем блок
 		block32_t iv;
 		
 		std::random_device rd;
 		std::mt19937_64 generator(rd());
 		std::uniform_int_distribution<uint32_t> distribution;
 
+        // заполняем его случайными значениями
 		std::generate(iv.begin(), iv.end(),
 			[&distribution, &generator]() { return distribution(generator); });
 
@@ -482,16 +491,19 @@ namespace crypto {
 
     block32_t anubis::crypt(block32_t block, std::vector<block32_t>& round_keys)
     {
+
         size_t R = round_keys.size() - 1;
         block32_t state;
         block32_t inter;
 
+        // начальный проход sigma[K^0]
         state = block;
         for (size_t i = 0; i < 4; ++i)
         {
             state[i] ^= round_keys[0][i];
         }
 
+        // r-1 полные проходы
         for (size_t r = 1; r < R; ++r)
         {
             inter[0] =
@@ -525,6 +537,7 @@ namespace crypto {
             state = inter;
         }
 
+        // последний проход
         inter[0] =
             T0[GET_BYTE(state[0], 24)] & 0xff000000 ^
             T1[GET_BYTE(state[1], 24)] & 0x00ff0000 ^
@@ -558,14 +571,18 @@ namespace crypto {
 
 	std::vector<byte> anubis::generate_random_key(int32_t N)
 	{
+        // проверяем размер ключа
 		assert(N <= 10 && N >= 4 && "N can be from 4 to 10 inclusive.");
 
+        
 		std::random_device rd;
 		std::mt19937_64 generator(rd());
 		std::uniform_int_distribution<int32_t> distribution;
 		
+        // создаём ключ
 		std::vector<byte> key(N * 4);
 
+        // заполняем его случайными значениями
 		std::generate(key.begin(), key.end(), 
 			[&distribution, &generator]() { return distribution(generator); });
 
@@ -580,6 +597,8 @@ namespace crypto {
 
     anubis::anubis(std::vector<byte>& key)
     {
+        // если ключ не удалось установить
+        // используется случайно сгенерированный ключ максимальной длины
         try 
         {
             set_key(key);
@@ -594,8 +613,10 @@ namespace crypto {
 	void anubis::set_key(std::vector<byte>& key)
 	{
         //determine the N length parameter
+        // определяем размер ключа в количестве 32 битных блоков
         int32_t N = static_cast<int32_t>(key.size()) / 4;
 
+        // проверяем валидность размера ключа
         if ((N > 10 || N < 4) && static_cast<int32_t>(key.size()) % 4 == 0)
         {
             throw std::runtime_error("Invalid Anubis key size " 
@@ -606,6 +627,7 @@ namespace crypto {
         this->key = key;
 
         //determine number of rounds
+        // определяем число раундов
         int32_t R = 8 + N;
         
         std::vector<uint32_t> kappa(N);
@@ -613,7 +635,7 @@ namespace crypto {
         block32_t rktmp;
 
        
-
+        // сопоставление ключа шифра с начальным состоянием ключа (mu)
         for (size_t i = 0, pos = 0; i < N; ++i) 
         {
             kappa[i] =
@@ -624,11 +646,14 @@ namespace crypto {
         }
 
         //generate key shedule
+        // чистим массивы раундовых ключей
         this->round_encrypt_key.clear();
         this->round_decrypt_key.clear();
 
+        // создаём R+1 раундовые ключи
         for (int32_t r = 0; r <= R; ++r) 
         {
+            // создаём R-ый раундовый ключ
             rktmp[0] = T4[GET_BYTE(kappa[N - 1], 24)];
             rktmp[1] = T4[GET_BYTE(kappa[N - 1], 16)];
             rktmp[2] = T4[GET_BYTE(kappa[N - 1], 8)];
@@ -663,6 +688,7 @@ namespace crypto {
 
             this->round_encrypt_key.push_back(rktmp);
 
+            // вычисляем kappa^{r+1} из kappa^r
             for (size_t i = 0; i < N; ++i) 
             {
                 inter[i] =
@@ -685,7 +711,10 @@ namespace crypto {
             }*/
         }
 
-        ////generate inverse key shedule
+
+        //generate inverse key shedule
+        // создаем набор раундовых ключей для дешифрования
+        // K'^0 = K^R, K'^R = K^0, K'^r = theta(K^{R-r})
         this->round_decrypt_key = std::vector<block32_t>(R + 1);
         this->round_decrypt_key[0] = this->round_encrypt_key[R];
         this->round_decrypt_key[R] = this->round_encrypt_key[0];
@@ -715,6 +744,7 @@ namespace crypto {
 
     void anubis::set_file_buf_sz(uint32_t sz)
     {
+        // делаем так, чтобы размер буфера был кратен 128 битам
         uint32_t bc = sz / ANUBIS_BLOCK_SZ;
         this->file_buf_sz = (bc == 0 ? 1 : bc) * ANUBIS_BLOCK_SZ;
     }
@@ -726,13 +756,16 @@ namespace crypto {
 
     std::vector<byte> anubis::encrypt(std::vector<byte>* data)
     {
+        // разбиваем данные на блоки
         auto blocks = split_data(*data);
 
+        // создаём вектор инициализации для режима сцепления блоков
         auto iv = generate_random_iv();
 
         std::vector<byte> result;
         result = result + iv;
 
+        // шифруем каждлый блок и добавляем зашифрованный блок в результирующий массив
         for (const auto & block : blocks) 
         {
             iv = crypt(iv ^ block, this->round_encrypt_key);
@@ -749,21 +782,27 @@ namespace crypto {
 
     std::vector<byte> anubis::decrypt(std::vector<byte>* data)
     {
+        // разбиваем данные на блоки
         auto blocks = split_data(*data, false);
 
+        // получаем из первого блока вектор инициализации
         auto iv = blocks[0];
 
         std::vector<byte> result;
 
+        // дешифруем блоки (алгоритм симметричный, поэтому функция 
+        // дешифрования потворяет функцию шифрования)
         for (size_t i = 1; i < blocks.size(); ++i) 
         {
             result = result + (iv ^ crypt(blocks[i], this->round_decrypt_key));
             iv = blocks[i];
         }
 
+        // определяем байты, которые надо удалить (они были добавлены при шифровании) 
         auto first = result.end() - 1 - static_cast<int32_t>(*(--result.end()));
         auto last = result.end();
 
+        // удаляем эти байты
         result.erase(first, last);
 
         return result;
@@ -776,19 +815,24 @@ namespace crypto {
 
     std::string anubis::encrypt_file(std::string* fname)
     {
+        // открываем файл
         std::ifstream fin(*fname, std::ios_base::binary);
+        // проверяем, успешно открыт ли файл
         if (!fin.is_open())
         {
             throw std::runtime_error("Unable to open the \"" + *fname + "\" file.");
         }
+        // открываем выходной файл
         std::ofstream fout((*fname) + ".encrypted", std::ios_base::binary | std::ios_base::trunc);
 
+        // определяем размер входного файла
         std::streampos cur = fin.tellg(), last = fin.tellg();
         size_t len = cur - last;
         fin.seekg(0, std::ios::end);
         size_t f_len = fin.tellg();
         fin.seekg(0, std::ios::beg);
 
+        // создаём вектор инициализации для режима сцепления блоков
         auto iv = generate_random_iv();
         fout.write(reinterpret_cast<char*>(iv.data()), ANUBIS_BLOCK_SZ);
 
@@ -797,21 +841,27 @@ namespace crypto {
 
         do 
         {
+            // получаем данные их файла в буфер
             std::vector<byte> data(this->file_buf_sz);
             fin.read(reinterpret_cast<char*>(data.data()), data.size());
 
+            // определяем, закончилось ли чтение файла
             fin.read(&t, 1);
             file_ended = fin.eof();
             fin.seekg(-1, std::ios::cur);
 
+            // определяем, сколько прочитали байт
             cur = fin.tellg();
             len = cur != -1 ? cur - last : f_len - last;
             last = cur;
 
             data.resize(len);
 
+            // разбиваем данные на блоки
+            // если это последние прочитанные данные из файла, то дополняем их фиктивными байтами
             auto blocks = split_data(data, file_ended);
 
+            // шифруем байты
             std::vector<byte> result;
             for (const auto& block : blocks) 
             {
@@ -819,6 +869,7 @@ namespace crypto {
                 result = result + iv;
             }
 
+            // записываем зашифрованные данные в файл
             fout.write(reinterpret_cast<char*>(result.data()), result.size());
             
         } while (!file_ended);
@@ -835,6 +886,7 @@ namespace crypto {
 
     std::string anubis::decrypt_file(std::string* fname)
     {
+        // процедура дешифрования файла проходит аналогично процедуре шифрования
         std::ifstream fin(*fname, std::ios_base::binary);
         if (!fin.is_open())
         {
@@ -849,6 +901,8 @@ namespace crypto {
         fin.seekg(0, std::ios::beg);
 
         block32_t iv;
+        // читаем первые 128 бит из файла и принимает их равными вектору инициализации
+        // для режима сцепления блоков
         fin.read(reinterpret_cast<char*>(iv.data()), ANUBIS_BLOCK_SZ);
 
         cur = fin.tellg();
@@ -874,6 +928,7 @@ namespace crypto {
 
             auto blocks = split_data(data, false);
 
+            // цикл дешифрования блоков
             std::vector<byte> result;
             for (const auto& block : blocks)
             {
@@ -881,6 +936,8 @@ namespace crypto {
                 iv = block;
             }
 
+            // если файл закончился, то мы удаляем из последнего куска прочитанной
+            // и дешифрованной информации фиктивные байты, добавленные при шифровании
             if (file_ended) 
             {
                 auto first = result.end() - 1 - static_cast<int32_t>(*(--result.end()));

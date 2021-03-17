@@ -19,6 +19,7 @@ namespace crypto {
 
 	class anubis
 	{
+		// таблицы подстановок для алгоритма
 		static uint32_t T0[256];
 		static uint32_t T1[256];
 		static uint32_t T2[256];
@@ -26,6 +27,7 @@ namespace crypto {
 		static uint32_t T4[256];
 		static uint32_t T5[256];
 
+		// метод разбиения данных на блоки
 		static std::vector<block32_t> split_data(std::vector<byte> data, bool is_last_block = true);
 		
 #ifdef _DEBUG
@@ -34,32 +36,46 @@ namespace crypto {
 		uint32_t file_buf_sz = ANUBIS_BLOCK_SZ * 65536; //in bytes
 #endif // _DEBUG
 
+		// ключ
 		std::vector<byte> key;
+		// раундовые ключи шифрование
 		std::vector<block32_t> round_encrypt_key;
+		// раундовые ключи дешифрования
 		std::vector<block32_t> round_decrypt_key;
 
+		// метод для создания случайного вектора инициализации
 		block32_t generate_random_iv();
+		// метод симметричного алгоритма шифрования
+		// он используется как в шифрованиия так и в дешифровании
 		block32_t crypt(block32_t block, std::vector<block32_t>& round_keys);
 
 	public:
+		// метод создания случайного ключа
 		static std::vector<byte> generate_random_key(int32_t N);
 
+		// конструкторы класса
 		explicit anubis();
 		explicit anubis(std::vector<byte>& key);
 
+		// методы получения и установки ключа
 		void set_key(std::vector<byte>& key);
 		std::vector<byte> get_key();
 
+		// методы получения и установки размера буфера
 		void set_file_buf_sz(uint32_t sz);
 		uint32_t get_file_buf_sz();
 
+		// методы шифрования данных
 		std::vector<byte> encrypt(std::vector<byte>* data);
 		std::vector<byte> encrypt(std::vector<byte> data);
+		// методы дешифрования данных
 		std::vector<byte> decrypt(std::vector<byte>* data);
 		std::vector<byte> decrypt(std::vector<byte> data);
 
+		// методы шифрования файла
 		std::string encrypt_file(std::string* fname);
 		std::string encrypt_file(std::string fname);
+		// методы дешифровния файла
 		std::string decrypt_file(std::string* fname);
 		std::string decrypt_file(std::string fname);
 
